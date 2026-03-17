@@ -1,32 +1,35 @@
 # OBS Whisper Transcriber
 
-Small local Windows project for turning the newest OBS `.mkv` recording on your Desktop into a Whisper transcript.
-
-## Workflow
-
-1. Record in OBS to `.mkv`.
-2. Run `run-latest-obs.bat`.
-3. The script finds the newest `.mkv` in `E:\OneDrive\desktop`.
-4. `ffmpeg` extracts the first audio track to `.wav`.
-5. `faster-whisper` transcribes the `.wav` locally.
-6. A folder named `transcribed_<source-name>` is created on the Desktop.
-7. Transcript files are written into that folder.
-8. The original `.mkv` and generated `.wav` are moved into `transcribed_source` inside that folder.
+Local Windows workflow for taking the newest OBS `.mkv` recording from the Desktop, extracting audio with `ffmpeg`, transcribing it with `faster-whisper`, and archiving both the source media and transcript outputs.
 
 ## Files
 
-- `install.bat`: installs Python requirements and checks `ffmpeg`
-- `run-latest-obs.bat`: launches the pipeline in a terminal window
+- `install.bat`: installs Python dependencies and checks `ffmpeg`
+- `run-latest-obs.bat`: opens the interactive terminal workflow
 - `process-latest-obs.ps1`: main workflow script
 - `transcribe.py`: local `faster-whisper` transcription CLI
 - `requirements.txt`: Python package requirements
+- `run_history.csv`: created automatically after the first successful run
 
-## Requirements
+## Workflow
 
-- Windows
-- Python 3.10+
-- `ffmpeg` available in PATH
-- NVIDIA GPU recommended for best performance
+1. Record in OBS to `.mkv` on `E:\OneDrive\desktop`.
+2. Run `run-latest-obs.bat`.
+3. The script finds the newest `.mkv`.
+4. It shows a model selector:
+   - `large-v3`
+   - `medium`
+   - `small`
+5. For each model it shows either:
+   - a local ETA from prior runs
+   - or a calibration message like `ETA calibrating (1/3 runs collected)`
+6. It converts the `.mkv` to `.wav` with `ffmpeg`.
+7. It transcribes the `.wav` locally with `faster-whisper`.
+8. A terminal progress bar is shown during inference.
+9. A folder named `transcribed_<source-name>` is created on the Desktop.
+10. Transcript files go into that folder.
+11. The source `.mkv` and generated `.wav` are moved into `transcribed_source` inside that folder.
+12. Timing data is appended to `run_history.csv` for future ETA estimates.
 
 ## Install
 
@@ -35,8 +38,6 @@ Double-click `install.bat`, or run:
 ```powershell
 .\install.bat
 ```
-
-The first real transcription run will download the Whisper model automatically.
 
 ## Run
 
@@ -65,6 +66,6 @@ Files created there:
 
 ## Notes
 
-- The current script extracts the first audio track from the OBS `.mkv`.
-- The default transcription model is `large-v3` on `cuda` with `float16`.
-- If a transcript folder with the same name already exists, the script creates a unique timestamped folder instead.
+- The script currently extracts the first audio track from the OBS `.mkv`.
+- The default device settings are `cuda` and `float16`.
+- The standalone folder stores models under `models/faster-whisper/` and generic outputs under `outputs/audio/faster-whisper/` when you use `transcribe.py` directly.

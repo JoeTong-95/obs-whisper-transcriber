@@ -1,6 +1,5 @@
 @echo off
 setlocal
-cd /d "%~dp0"
 title OBS Whisper Pipeline
 echo ======================================
 echo OBS to Whisper Transcription Pipeline

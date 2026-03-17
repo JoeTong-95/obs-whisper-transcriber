@@ -8,9 +8,14 @@ from typing import Any
 from faster_whisper import WhisperModel
 
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_MODEL_DIR = REPO_ROOT / "models" / "faster-whisper"
-DEFAULT_OUTPUT_DIR = REPO_ROOT / "outputs" / "audio" / "faster-whisper"
+SCRIPT_DIR = Path(__file__).resolve().parent
+if SCRIPT_DIR.parent.name == "audio" and SCRIPT_DIR.parent.parent.name == "pipelines":
+    BASE_DIR = SCRIPT_DIR.parents[2]
+else:
+    BASE_DIR = SCRIPT_DIR
+
+DEFAULT_MODEL_DIR = BASE_DIR / "models" / "faster-whisper"
+DEFAULT_OUTPUT_DIR = BASE_DIR / "outputs" / "audio" / "faster-whisper"
 
 
 def parse_args() -> argparse.Namespace:
@@ -68,6 +73,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Enable voice activity detection to trim silence.",
     )
+    parser.add_argument(
+        "--progress",
+        action="store_true",
+        help="Emit machine-readable progress updates during transcription.",
+    )
     return parser.parse_args()
 
 
@@ -81,6 +91,13 @@ def format_timestamp(seconds: float) -> str:
 
 def format_vtt_timestamp(seconds: float) -> str:
     return format_timestamp(seconds).replace(",", ".")
+
+
+def emit_progress(current: float, total: float) -> None:
+    if total <= 0:
+        return
+    percent = min(max((current / total) * 100.0, 0.0), 100.0)
+    print(f"PROGRESS|{percent:.2f}|{current:.2f}|{total:.2f}", flush=True)
 
 
 def write_text(segments: list[dict[str, Any]], output_path: Path) -> None:
@@ -152,15 +169,25 @@ def main() -> None:
         vad_filter=args.vad_filter,
     )
 
-    segments = [
-        {
-            "id": segment.id,
-            "start": segment.start,
-            "end": segment.end,
-            "text": segment.text,
-        }
-        for segment in segments_iter
-    ]
+    total_duration = info.duration_after_vad or info.duration or 0.0
+    segments = []
+    if args.progress and total_duration > 0:
+        emit_progress(0.0, total_duration)
+
+    for segment in segments_iter:
+        segments.append(
+            {
+                "id": segment.id,
+                "start": segment.start,
+                "end": segment.end,
+                "text": segment.text,
+            }
+        )
+        if args.progress and total_duration > 0:
+            emit_progress(segment.end, total_duration)
+
+    if args.progress and total_duration > 0:
+        emit_progress(total_duration, total_duration)
 
     info_payload = {
         "language": info.language,

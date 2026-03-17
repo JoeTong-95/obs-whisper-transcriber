@@ -28,7 +28,7 @@ python -m pip install -r requirements.txt
 if errorlevel 1 goto :fail
 echo.
 echo Setup complete.
-echo Model files will download automatically on the first transcription run.
+echo Models are downloaded automatically on first use unless already cached.
 echo.
 pause
 exit /b 0
