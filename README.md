@@ -1,6 +1,7 @@
 # OBS Whisper Transcriber
 
 Local Windows workflow for taking the newest OBS `.mkv` recording from the Desktop, extracting audio with `ffmpeg`, transcribing it with `faster-whisper`, and archiving both the source media and transcript outputs.
+`run-latest-obs.bat` allows choosing 3 models to run the pipeline and provides ETA based on previous runs.
 
 ## Files
 
