@@ -223,6 +223,7 @@ def main() -> None:
     print(f"  JSON {json_path}")
     print(f"  SRT  {srt_path}")
     print(f"  VTT  {vtt_path}")
+    print(f"STATUS|OK|{text_path}|{json_path}|{srt_path}|{vtt_path}", flush=True)
 
 
 if __name__ == "__main__":

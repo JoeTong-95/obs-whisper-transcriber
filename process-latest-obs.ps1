@@ -7,7 +7,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$CalibrationRunsRequired = 3
+$MinimumRunsForEta = 1
 
 Add-Type -AssemblyName System.Windows.Forms
 
@@ -109,21 +109,11 @@ function Get-ModelEtaInfo {
         [string]$Device,
         [string]$ComputeType,
         [double]$AudioSeconds,
-        [int]$CalibrationRunsRequired
+        [int]$MinimumRunsForEta
     )
 
-    $rows = Get-RunHistoryRows -HistoryPath $HistoryPath -Model $Model -Device $Device -ComputeType $ComputeType
-    $count = $rows.Count
-
-    if ($count -lt $CalibrationRunsRequired) {
-        return [pscustomobject]@{
-            Calibrated = $false
-            Runs = $count
-            RunsRequired = $CalibrationRunsRequired
-            EtaSeconds = $null
-            Display = "ETA calibrating ($count/$CalibrationRunsRequired runs collected)"
-        }
-    }
+    $rows = @(Get-RunHistoryRows -HistoryPath $HistoryPath -Model $Model -Device $Device -ComputeType $ComputeType)
+    $count = [int]$rows.Count
 
     $ratios = @()
     foreach ($row in $rows) {
@@ -134,13 +124,14 @@ function Get-ModelEtaInfo {
         }
     }
 
-    if ($ratios.Count -eq 0) {
+    $usableCount = [int]$ratios.Count
+    if ($usableCount -lt $MinimumRunsForEta) {
         return [pscustomobject]@{
             Calibrated = $false
             Runs = $count
-            RunsRequired = $CalibrationRunsRequired
+            RunsRequired = $MinimumRunsForEta
             EtaSeconds = $null
-            Display = "ETA calibrating ($count/$CalibrationRunsRequired runs collected)"
+            Display = "ETA learning from previous runs to be more accurate ($count trial(s))"
         }
     }
 
@@ -149,10 +140,10 @@ function Get-ModelEtaInfo {
 
     return [pscustomobject]@{
         Calibrated = $true
-        Runs = $count
-        RunsRequired = $CalibrationRunsRequired
+        Runs = $usableCount
+        RunsRequired = $MinimumRunsForEta
         EtaSeconds = $etaSeconds
-        Display = "ETA ~$(Format-Duration -Seconds $etaSeconds) based on $count run(s)"
+        Display = "ETA ~$(Format-Duration -Seconds $etaSeconds) from $usableCount trial(s); ETA learns from previous runs to be more accurate"
     }
 }
 
@@ -163,7 +154,7 @@ function Select-Model {
         [double]$AudioSeconds,
         [string]$Device,
         [string]$ComputeType,
-        [int]$CalibrationRunsRequired
+        [int]$MinimumRunsForEta
     )
 
     $options = @(
@@ -184,7 +175,7 @@ function Select-Model {
     Write-Step "Audio duration: $(Format-Duration -Seconds $AudioSeconds)"
     Write-Host 'Choose a model:' -ForegroundColor Yellow
     foreach ($option in $options) {
-        $etaInfo = Get-ModelEtaInfo -HistoryPath $HistoryPath -Model $option.Model -Device $Device -ComputeType $ComputeType -AudioSeconds $AudioSeconds -CalibrationRunsRequired $CalibrationRunsRequired
+        $etaInfo = Get-ModelEtaInfo -HistoryPath $HistoryPath -Model $option.Model -Device $Device -ComputeType $ComputeType -AudioSeconds $AudioSeconds -MinimumRunsForEta $MinimumRunsForEta
         Write-Host ("  {0}. {1,-8} {2} | {3}" -f $option.Key, $option.Model, $option.Description, $etaInfo.Display)
     }
     Write-Host ''
@@ -212,10 +203,19 @@ function Invoke-TranscriptionWithProgress {
         [string]$OutputDir,
         [string]$Device,
         [string]$ComputeType,
-        [string]$Model
+        [string]$Model,
+        [string]$Stem
     )
 
     $outputLines = New-Object System.Collections.Generic.List[string]
+    $statusOk = $false
+    $expectedOutputs = @(
+        (Join-Path $OutputDir ($Stem + '.txt')),
+        (Join-Path $OutputDir ($Stem + '.json')),
+        (Join-Path $OutputDir ($Stem + '.srt')),
+        (Join-Path $OutputDir ($Stem + '.vtt'))
+    )
+
     & $PythonExe $TranscribeScript $AudioPath --output-dir $OutputDir --device $Device --compute-type $ComputeType --model $Model --progress 2>&1 |
         ForEach-Object {
             $line = $_.ToString()
@@ -229,6 +229,9 @@ function Invoke-TranscriptionWithProgress {
                     Write-Progress -Activity 'Transcribing audio' -Status $status -PercentComplete $percent
                 }
             }
+            elseif ($line.StartsWith('STATUS|OK|')) {
+                $statusOk = $true
+            }
             else {
                 $outputLines.Add($line)
                 Write-Host $line
@@ -236,11 +239,14 @@ function Invoke-TranscriptionWithProgress {
         }
 
     $exitCode = $LASTEXITCODE
+    $allOutputsExist = ($expectedOutputs | Where-Object { -not (Test-Path $_) }).Count -eq 0
     Write-Progress -Activity 'Transcribing audio' -Completed
 
     return @{
         ExitCode = $exitCode
         OutputLines = $outputLines
+        StatusOk = $statusOk
+        AllOutputsExist = $allOutputsExist
     }
 }
 
@@ -268,8 +274,8 @@ try {
 
     Write-Step "Found source video: $($latestVideo.Name)"
     $audioDurationSeconds = Get-MediaDurationSeconds -Path $latestVideo.FullName
-    $selectedModel = Select-Model -RequestedModel $Model -HistoryPath $runHistoryPath -AudioSeconds $audioDurationSeconds -Device $Device -ComputeType $ComputeType -CalibrationRunsRequired $CalibrationRunsRequired
-    $selectedEta = Get-ModelEtaInfo -HistoryPath $runHistoryPath -Model $selectedModel -Device $Device -ComputeType $ComputeType -AudioSeconds $audioDurationSeconds -CalibrationRunsRequired $CalibrationRunsRequired
+    $selectedModel = Select-Model -RequestedModel $Model -HistoryPath $runHistoryPath -AudioSeconds $audioDurationSeconds -Device $Device -ComputeType $ComputeType -MinimumRunsForEta $MinimumRunsForEta
+    $selectedEta = Get-ModelEtaInfo -HistoryPath $runHistoryPath -Model $selectedModel -Device $Device -ComputeType $ComputeType -AudioSeconds $audioDurationSeconds -MinimumRunsForEta $MinimumRunsForEta
     Write-Step "Selected model: $selectedModel"
     Write-Step $selectedEta.Display Yellow
 
@@ -296,9 +302,9 @@ try {
     Write-Step "WAV created: $wavPath" Green
     Write-Step "Starting transcription with model=$selectedModel device=$Device compute_type=$ComputeType"
     $transcriptionStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-    $transcriptionResult = Invoke-TranscriptionWithProgress -PythonExe 'python' -TranscribeScript $transcribeScript -AudioPath $wavPath -OutputDir $runFolder -Device $Device -ComputeType $ComputeType -Model $selectedModel
+    $transcriptionResult = Invoke-TranscriptionWithProgress -PythonExe 'python' -TranscribeScript $transcribeScript -AudioPath $wavPath -OutputDir $runFolder -Device $Device -ComputeType $ComputeType -Model $selectedModel -Stem $latestVideo.BaseName
     $transcriptionStopwatch.Stop()
-    if ($transcriptionResult.ExitCode -ne 0) {
+    if (-not ($transcriptionResult.StatusOk -and $transcriptionResult.AllOutputsExist)) {
         throw "Transcription failed for $wavPath"
     }
 
